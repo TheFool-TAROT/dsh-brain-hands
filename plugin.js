@@ -19,7 +19,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -229,6 +229,34 @@ function extractExpectedSymbols(text) {
   return [...names]
 }
 
+/** 派单前扫描 .py 文件，写入临时快照，用于事后区分新增/修改。
+ *  Linux 上 st_birthtime 不可用、ctime 修改后也会变，只能靠快照对比。*/
+function snapshotPyFiles(cwd, maxDepth = 4) {
+  const out = []
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return
+    let entries
+    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name.endsWith('.py')) {
+        try { out.push(path.relative(cwd, path.join(dir, ent.name))) } catch {}
+      }
+    }
+    if (depth === maxDepth) return
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue
+      if (STATE_SKIP.has(ent.name) || ent.name.startsWith('.')) continue
+      walk(path.join(dir, ent.name), depth + 1)
+    }
+  }
+  walk(cwd, 0)
+  const file = `/tmp/hand_snap_${Date.now()}_${Math.floor(Math.random()*1e6)}.txt`
+  try {
+    writeFileSync(file, out.join('\n'), 'utf-8')
+    return file
+  } catch { return null }
+}
+
 /** 在 cwd 及其浅层子目录里找 PROJECT_STATE.md，取 mtime 最新的一个。
  *  只向下找 maxDepth 层，跳过 node_modules/.git 等目录，避免扫描过大。*/
 function findStateFile(cwd, maxDepth = 2) {
@@ -284,12 +312,13 @@ function stateFileHint(cwd) {
 }
 
 /** 调用 verify.py 验收 hand 产出。失败或无脚本时返回 null（不阻断流程）。*/
-function verifyHandOutput(cwd, since, expect = [], timeoutMs = 120000) {
+function verifyHandOutput(cwd, since, expect = [], snapshot = null, timeoutMs = 120000) {
   const script = path.join(path.dirname(new URL(import.meta.url).pathname), 'verify.py')
   if (!existsSync(script)) return Promise.resolve(null)
   return new Promise(resolve => {
     const argv = [script, cwd, '--since', String(since), '--json']
     if (expect.length > 0) argv.push('--expect', expect.join(','))
+    if (snapshot !== null) argv.push('--snapshot', snapshot)
     execFile('python3', argv,
       { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
         const raw = (stdout || '').trim()
@@ -308,10 +337,19 @@ function verifyHandOutput(cwd, since, expect = [], timeoutMs = 120000) {
 function renderVerifyReport(report) {
   if (report === null || report === undefined) return ''
   if (report.checked === 0) return '\n\n【产出验收】没有检测到新增/修改的 .py 文件'
+  const nAdd = (report.added || []).length
+  const nMod = (report.modified || []).length
+  const scope = report.added === undefined
+    ? `${report.checked} 个文件`
+    : `新增 ${nAdd} / 修改 ${nMod}`
+  const defs = Object.values(report.symbols || {})
+    .flat()
+    .filter(x => x !== '(无顶层定义)').length
   if (report.ok) {
-    return `\n\n【产出验收】✓ ${report.checked} 个文件全部通过（语法/导入/无污染）`
+    return `\n\n【产出验收】✓ ${scope}，共 ${report.checked} 个文件、${defs} 个定义全部通过`
+      + '（语法/导入/无污染）'
   }
-  const lines = ['\n\n【产出验收】✗ 发现问题，需修正：']
+  const lines = [`\n\n【产出验收】✗ ${scope}，共 ${report.checked} 个文件，发现问题需修正：`]
   for (const [file, probs] of Object.entries(report.problems || {})) {
     lines.push(`- ${file}`)
     for (const p of probs) lines.push(`    · ${p}`)
@@ -489,6 +527,7 @@ export function apply(ctx, config) {
           model: routeLabel({ provider, model: current.model }),
         }
       }
+      const handSnap = snapshotPyFiles(handCwd)
       const handStartTs = Date.now() / 1000
       const result = await collectForeground(
         await subagents.start(childProvider, { label, ...request, signal }),
@@ -497,7 +536,8 @@ export function apply(ctx, config) {
       let verifyText = ''
       try {
         const expected = extractExpectedSymbols(args.prompt)
-        const report = await verifyHandOutput(handCwd, handStartTs, expected)
+        const report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap)
+        if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
         verifyText = renderVerifyReport(report)
       } catch {}
       return {

@@ -142,6 +142,8 @@ def main() -> int:
                     help="只检查此 unix 时间戳之后修改的文件")
     ap.add_argument("--expect", default="",
                     help="逗号分隔的期望函数/类名，缺一个就报错")
+    ap.add_argument("--snapshot",
+                    help="派单前的 .py 文件清单，用于区分新增/修改")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -190,6 +192,20 @@ def main() -> int:
                     defined.add(n.name)
         missing = [e for e in expects if e not in defined]
 
+    # 区分新增 / 修改
+    before: set[str] | None = None
+    if a.snapshot:
+        try:
+            before = {ln.strip() for ln in open(a.snapshot, encoding="utf-8") if ln.strip()}
+        except OSError:
+            before = None
+    rel_files = [os.path.relpath(f, root) for f in files]
+    if before is not None:
+        added = [f for f in rel_files if f not in before]
+        modified = [f for f in rel_files if f in before]
+    else:
+        added, modified = rel_files, []
+
     ok = not per_file and not import_probs and not missing
     result = {
         "ok": ok,
@@ -200,12 +216,17 @@ def main() -> int:
         "import_problems": import_probs,
         "expected": expects,
         "missing": missing,
+        "added": added,
+        "modified": modified,
     }
 
     if a.json:
         print(json.dumps(result, ensure_ascii=False))
     else:
-        print(f"  检查 {len(files)} 个文件")
+        if before is not None:
+            print(f"  检查 {len(files)} 个文件（新增 {len(added)} / 修改 {len(modified)}）")
+        else:
+            print(f"  检查 {len(files)} 个文件")
         if ok:
             print("  ✓ 全部通过")
             for f in result["files"][:8]:
