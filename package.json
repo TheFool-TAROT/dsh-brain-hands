@@ -1,6 +1,6 @@
 {
   "name": "dsh-brain-hands",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "type": "module",
   "description": "Brain + Hands: one orchestrator model plans and decides, while every named hand runs on its own (often free) model. Includes shared project-state injection and automatic output verification.",
   "keywords": [
@@ -33,6 +33,7 @@
     "plugin.js",
     "client.js",
     "verify.py",
+    "docs/*.md",
     "icon.svg",
     "locale/*.json",
     "templates/*.md"

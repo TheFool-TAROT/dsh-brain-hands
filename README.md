@@ -277,6 +277,10 @@ brain 看到后修掉或重派。
 
 > 完整实验方法、原始数据、以及两次错误结论的修正过程，见
 > [`docs/EXPERIMENT.md`](docs/EXPERIMENT.md)。
+>
+> 这个插件怎么从「能跑但不可靠」调到「实测 3/3 全绿」的完整排查过程，见
+> [`docs/DEBUGGING.md`](docs/DEBUGGING.md)——含 5 个诊断阶段、3 次验收误报，
+> 以及从模型拒绝话术反推根因的思路。
 
 
 在真实 agent 会话中做的三组对照实验（DeepSeek V4.1-Flash 官方价：
