@@ -573,14 +573,25 @@ export function apply(ctx, config) {
       } catch {}
       if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
 
-      // 一次自动重试：hand 约 20% 概率声称「write 不可用」而只输出文本
-      let retried = false
-      if (report !== null && report.checked === 0 && !signal.aborted) {
-        retried = true
-        const retryBrief = brief
-          + '\n\n【重要】上一次你一个文件都没写。这次必须调用 write 工具把代码'
-          + '真正写到磁盘。你确实拥有 write / edit / bash / read 工具，'
-          + '不要说它们不可用，也不要只在回复里贴代码。\n\n'
+      // 自动重试：hand 常声称「write 不可用」而只输出文本。
+      // 实测首次幻觉率约 60%，重试 2 次后仍失败的概率约 22%。
+      const MAX_RETRY = 2
+      let retryCount = 0
+      while (report !== null && report.checked === 0
+             && retryCount < MAX_RETRY && !signal.aborted) {
+        retryCount += 1
+        let retryBrief
+        if (retryCount === 1) {
+          retryBrief = brief
+            + '\n\n【重要】上一次你一个文件都没写。这次必须调用 write 工具把代码'
+            + '真正写到磁盘。你确实拥有 write / edit / bash / read 工具，'
+            + '不要说它们不可用，也不要只在回复里贴代码。\n\n'
+        } else {
+          retryBrief = brief
+            + '\n\n【最后一次机会】连续两次你都没有写入任何文件。'
+            + '现在只做一件事：调用 write 工具，arguments 里给出 file_path 和 content。'
+            + '不要输出解释、不要贴代码块、不要声称工具不可用。\n\n'
+        }
         const retryRequest = {
           ...request,
           prompt: [{ type: 'text', text: retryBrief + args.prompt }],
@@ -590,7 +601,7 @@ export function apply(ctx, config) {
         try {
           result = await collectForeground(
             await subagents.start(childProvider,
-              { label: `${label} (retry)`, ...retryRequest, signal }),
+              { label: `${label} (retry ${retryCount})`, ...retryRequest, signal }),
           )
           report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap, expectedPaths)
         } catch {}
@@ -598,12 +609,15 @@ export function apply(ctx, config) {
       }
 
       const verifyText = renderVerifyReport(report)
+      const retryNote = retryCount === 0
+        ? ''
+        : `\n\n[hand 前 ${retryCount} 次未写文件，已自动重试 ${retryCount} 次]`
       return {
         kind: 'foreground',
         subagentId: String(result.runId),
         hand: current.name,
         model: routeLabel({ provider, model: current.model }),
-        text: result.text + (retried ? '\n\n[hand 首次未写文件，已自动重试一次]' : '') + verifyText,
+        text: result.text + retryNote + verifyText,
       }
     },
   })
