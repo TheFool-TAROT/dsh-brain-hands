@@ -132,31 +132,57 @@ def check_file(path: str) -> list[str]:
     return problems
 
 
-def check_import(root: str, files: list[str]) -> list[str]:
-    """尝试导入顶层包（若可识别）。"""
-    problems = []
-    # 找共同顶层包名
-    tops = set()
-    for f in files:
-        rel = os.path.relpath(f, root)
-        if os.sep in rel:
-            tops.add(rel.split(os.sep)[0])
-    tops.discard("tests")
-    tops.discard("test")
-    for top in sorted(tops):
-        if not os.path.isdir(os.path.join(root, top)):
+def _all_packages(root: str) -> list[str]:
+    """找出 root 下所有含 __init__.py 的目录，转成可 import 的模块路径。"""
+    pkgs = []
+    skip = {"__pycache__", ".git", ".venv", "venv", "node_modules", ".pytest_cache"}
+    for dp, dirs, fns in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in skip]
+        if "__init__.py" not in fns:
             continue
-        code = (f"import sys; sys.path.insert(0, {root!r}); "
-                f"import {top}; print('OK')")
-        p = subprocess.run([sys.executable, "-c", code],
-                           capture_output=True, text=True, timeout=60)
-        if p.returncode != 0:
-            tail = (p.stderr.strip().splitlines() or ["unknown"])[-1]
-            # 相对导入在「单独 import 子目录」时会失败，这是检测方式的问题，
-            # 不是代码本身的问题——只有当目录本身是包根时才有意义。
-            if "relative import" in tail or "beyond top-level" in tail:
-                continue
-            problems.append(f"import {top} 失败: {tail[:150]}")
+        rel = os.path.relpath(dp, root)
+        if rel == ".":
+            continue
+        parts = [p for p in rel.split(os.sep) if p and not p.startswith(".")]
+        if not parts:
+            continue
+        if parts[0] in ("tests", "test", "docs", "examples"):
+            continue
+        pkgs.append(".".join(parts))
+    return sorted(pkgs)
+
+
+def check_import(root: str, files: list[str]) -> list[str]:
+    """逐个导入所有子包——只测顶层包会漏掉 __init__.py 里的坏导入。"""
+    problems = []
+    pkgs = _all_packages(root)
+    if not pkgs:
+        return problems
+    # 一次性把 sys.path 设好，逐个 import，遇到失败就记录
+    code = f"""
+import sys, importlib
+sys.path.insert(0, {root!r})
+failed = []
+for name in {pkgs!r}:
+    try:
+        importlib.import_module(name)
+    except Exception as e:
+        failed.append((name, type(e).__name__ + ': ' + str(e)[:120]))
+for name, err in failed:
+    print(f"FAIL\t{{name}}\t{{err}}")
+"""
+    p = subprocess.run([sys.executable, "-c", code],
+                       capture_output=True, text=True, timeout=120)
+    for line in (p.stdout or "").splitlines():
+        if not line.startswith("FAIL\t"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        name, err = parts[1], parts[2]
+        if "relative import" in err or "beyond top-level" in err:
+            continue
+        problems.append(f"import {name} 失败: {err[:150]}")
     return problems
 
 

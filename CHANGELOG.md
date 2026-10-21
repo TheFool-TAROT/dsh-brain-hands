@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.5.1] - 2026-10-21
+
+### Fixed
+**import 检查只测顶层包，漏掉子包的坏导入。**
+
+实测场景：
+
+```
+flowforge/utils/__init__.py 里写了 from .querystring import to_query_string
+但 querystring.py 被 hand 写到了错误的目录
+
+旧版验收：
+  ✓ import flowforge          （顶层包能导入）
+  ✓ 全部通过                   ← 误报
+
+实际：
+  ✗ from flowforge.utils import clamp
+  → ModuleNotFoundError: No module named 'flowforge.utils.querystring'
+```
+
+修复：改为逐个 `importlib.import_module()` 所有含 `__init__.py` 的子包，
+一次性收集所有失败并报告。
+
 ## [1.5.0] - 2026-10-21
 
 ### Added
