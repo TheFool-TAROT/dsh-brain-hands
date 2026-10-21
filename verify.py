@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import io
+import tokenize
 
 
 def find_py_files(root: str, since: float | None) -> list[str]:
@@ -53,21 +55,35 @@ def check_file(path: str) -> list[str]:
     except SyntaxError as e:
         problems.append(f"语法错误 L{e.lineno}: {e.msg}")
 
-    # 2) Markdown 围栏混入（hand 常见错误）
-    if "```" in src:
-        line = next((i + 1 for i, l in enumerate(src.splitlines()) if "```" in l), 0)
-        problems.append(f"混入 Markdown 围栏（L{line}）")
+    # 用 tokenize 标出字符串（docstring）占用的行范围，避免把文档里的
+    # Markdown 示例误判为「代码污染」
+    string_lines: set[int] = set()
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.STRING:
+                for ln in range(tok.start[0], tok.end[0] + 1):
+                    string_lines.add(ln)
+    except Exception:
+        pass
 
-    # 3) 非代码内容混入（中文说明段落出现在代码位置）
-    non_comment_cn = 0
+    # 2) Markdown 围栏混入（只在代码区检测，docstring 内的示例不算）
     for i, l in enumerate(src.splitlines(), 1):
-        s = l.strip()
-        if not s or s.startswith("#") or s.startswith('"') or s.startswith("'"):
+        if "```" in l and i not in string_lines:
+            problems.append(f"混入 Markdown 围栏（L{i}，代码区）")
+            break
+
+    # 3) 非代码内容混入（代码区出现表格/列表；docstring 内的不算）
+    non_code = 0
+    for i, l in enumerate(src.splitlines(), 1):
+        if i in string_lines:
             continue
-        if s.startswith("```") or s.startswith("|") or s.startswith("- ") or s.startswith("* "):
-            non_comment_cn += 1
-    if non_comment_cn >= 3:
-        problems.append(f"疑似混入 {non_comment_cn} 行非代码内容（表格/列表）")
+        st = l.strip()
+        if not st or st.startswith("#"):
+            continue
+        if st.startswith("|") or st.startswith("- ") or st.startswith("* ") or st.startswith("```"):
+            non_code += 1
+    if non_code >= 3:
+        problems.append(f"代码区混入 {non_code} 行非代码内容（表格/列表）")
 
     # 3.5) 文件实质为空：只有省略号/pass/注释/空白
     meaningful = []
@@ -84,17 +100,22 @@ def check_file(path: str) -> list[str]:
             meaningful.append(type(node).__name__)
     except SyntaxError:
         pass
+    is_init = os.path.basename(path) == "__init__.py"
     if not meaningful and len(src.strip()) < 40:
-        problems.append(f"文件实质为空（{len(src.strip())} 字节，无任何定义）")
+        # 空的 __init__.py 是 Python 惯例，不算问题
+        if not is_init:
+            problems.append(f"文件实质为空（{len(src.strip())} 字节，无任何定义）")
 
     # 4) 是否为空洞实现（整文件只有 pass / ...）
     try:
         tree = ast.parse(src)
-        bodies = [n for n in ast.walk(tree)
-                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
-        if bodies:
+        # 只看函数（类本身不算：有方法的类不是空实现）
+        fns = [n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and n.name not in ("__init__",)]
+        if fns:
             empty = 0
-            for n in bodies:
+            for n in fns:
                 stmts = [b for b in n.body if not isinstance(b, ast.Expr)]
                 if len(stmts) == 1 and (
                     isinstance(stmts[0], ast.Pass)
@@ -103,8 +124,8 @@ def check_file(path: str) -> list[str]:
                         and stmts[0].value.value is Ellipsis)
                 ):
                     empty += 1
-            if empty == len(bodies) and empty > 0:
-                problems.append(f"整文件 {empty} 个定义全为空实现")
+            if empty == len(fns) and empty > 0:
+                problems.append(f"整文件 {empty} 个函数全为空实现")
     except SyntaxError:
         pass
 
@@ -131,6 +152,10 @@ def check_import(root: str, files: list[str]) -> list[str]:
                            capture_output=True, text=True, timeout=60)
         if p.returncode != 0:
             tail = (p.stderr.strip().splitlines() or ["unknown"])[-1]
+            # 相对导入在「单独 import 子目录」时会失败，这是检测方式的问题，
+            # 不是代码本身的问题——只有当目录本身是包根时才有意义。
+            if "relative import" in tail or "beyond top-level" in tail:
+                continue
             problems.append(f"import {top} 失败: {tail[:150]}")
     return problems
 
