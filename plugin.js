@@ -257,6 +257,20 @@ function snapshotPyFiles(cwd, maxDepth = 8) {
   } catch { return null }
 }
 
+/** 从 brief 里提取期望的文件路径（只认含 / 且以 .py 结尾的）。
+ *  排除 /tmp 和 /path/to 这类示例路径，避免误报。*/
+function extractExpectedPaths(text) {
+  if (!text) return []
+  const out = new Set()
+  for (const m of text.matchAll(/\/?[\w\-.]+(?:\/[\w\-.]+)+\.py\b/g)) {
+    const p = m[0]
+    if (p.startsWith('/tmp/') || p.startsWith('tmp/')) continue
+    if (p.includes('/path/to') || p.includes('path/to/')) continue
+    out.add(p)
+  }
+  return [...out]
+}
+
 /** 在 cwd 及其浅层子目录里找 PROJECT_STATE.md，取 mtime 最新的一个。
  *  只向下找 maxDepth 层，跳过 node_modules/.git 等目录，避免扫描过大。*/
 function findStateFile(cwd, maxDepth = 2) {
@@ -320,13 +334,14 @@ function stateFileHint(cwd) {
 }
 
 /** 调用 verify.py 验收 hand 产出。失败或无脚本时返回 null（不阻断流程）。*/
-function verifyHandOutput(cwd, since, expect = [], snapshot = null, timeoutMs = 120000) {
+function verifyHandOutput(cwd, since, expect = [], snapshot = null, expectPaths = [], timeoutMs = 120000) {
   const script = path.join(path.dirname(new URL(import.meta.url).pathname), 'verify.py')
   if (!existsSync(script)) return Promise.resolve(null)
   return new Promise(resolve => {
     const argv = [script, cwd, '--since', String(since), '--json']
     if (expect.length > 0) argv.push('--expect', expect.join(','))
     if (snapshot !== null) argv.push('--snapshot', snapshot)
+    if (expectPaths.length > 0) argv.push('--expect-path', expectPaths.join(','))
     execFile('python3', argv,
       { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
         const raw = (stdout || '').trim()
@@ -369,6 +384,9 @@ function renderVerifyReport(report) {
   for (const p of report.import_problems || []) lines.push(`- ${p}`)
   if (report.missing && report.missing.length > 0) {
     lines.push(`- 缺少期望的定义: ${report.missing.join(', ')}`)
+  }
+  if (report.missing_paths && report.missing_paths.length > 0) {
+    lines.push(`- 期望的文件未创建: ${report.missing_paths.join(', ')}`)
   }
   return lines.join('\n')
 }
@@ -549,7 +567,8 @@ export function apply(ctx, config) {
       let verifyText = ''
       try {
         const expected = extractExpectedSymbols(args.prompt)
-        const report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap)
+        const expectedPaths = extractExpectedPaths(args.prompt)
+        const report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap, expectedPaths)
         if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
         verifyText = renderVerifyReport(report)
       } catch {}

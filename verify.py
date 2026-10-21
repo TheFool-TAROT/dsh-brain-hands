@@ -169,6 +169,8 @@ def main() -> int:
                     help="逗号分隔的期望函数/类名，缺一个就报错")
     ap.add_argument("--snapshot",
                     help="派单前的 .py 文件清单，用于区分新增/修改")
+    ap.add_argument("--expect-path", default="",
+                    help="逗号分隔的期望文件路径，未创建就报错")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -231,7 +233,16 @@ def main() -> int:
     else:
         added, modified = rel_files, []
 
-    ok = not per_file and not import_probs and not missing
+    # 检查 brief 里要求的文件路径是否真的存在
+    missing_paths: list[str] = []
+    expects_path = [x.strip() for x in a.expect_path.split(",") if x.strip()]
+    if expects_path:
+        for ep in expects_path:
+            full = ep if os.path.isabs(ep) else os.path.join(root, ep)
+            if not os.path.exists(full):
+                missing_paths.append(ep)
+
+    ok = not per_file and not import_probs and not missing and not missing_paths
     result = {
         "ok": ok,
         "checked": len(files),
@@ -241,6 +252,8 @@ def main() -> int:
         "import_problems": import_probs,
         "expected": expects,
         "missing": missing,
+        "expected_paths": expects_path,
+        "missing_paths": missing_paths,
         "added": added,
         "modified": modified,
     }
@@ -270,6 +283,8 @@ def main() -> int:
                 print(f"  ✗ {p}")
             if missing:
                 print(f"  ✗ 缺少期望的定义: {', '.join(missing)}")
+            if missing_paths:
+                print(f"  ✗ 期望的文件未创建: {', '.join(missing_paths)}")
 
     return 0 if ok else 1
 

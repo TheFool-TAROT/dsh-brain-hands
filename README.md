@@ -117,6 +117,18 @@ hand 返回后，插件自动调用 `verify.py` 检查它写的代码：
 实用价值：brief 要求处理 2011 个文件时，如果报告显示「新增 312 / 修改 0」，
 brain 一眼就能看出覆盖不足（实测 hand 曾漏扫 85% 文件且自己没察觉）。
 
+### ⑥ 期望路径检查（v1.4）
+
+从 brief 提取完整文件路径，验收时核对是否真的创建：
+
+```
+brief:   创建 /proj/flowforge/utils/urlkit.py
+实际:    写到 /proj/utils/urlkit.py      ← 少一层
+报告:    ✗ 期望的文件未创建: /proj/flowforge/utils/urlkit.py
+```
+
+**前提：brain 要在 brief 里写出完整路径**（不只是「在 xxx 目录下创建 yyy.py」）。
+
 ### ⑤ 自主执行约束（v1.3.2）
 
 brief 里自动注入一段：
