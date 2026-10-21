@@ -19,7 +19,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -194,13 +194,62 @@ function resolveMaxDepth(subagents) {
 }
 
 
-/** 若工作目录下有 PROJECT_STATE.md，生成一段"先读它"的提示。
+const STATE_FILE = 'PROJECT_STATE.md'
+const STATE_SKIP = new Set([
+  'node_modules', '.git', '__pycache__', '.venv', 'venv', '.pytest_cache',
+  'sessions', '.npm', '.cache', 'pkg', 'mod',
+  'templates', 'template', 'examples', 'docs', 'test', 'tests',
+])
+/** 缓存查找结果，避免每次派单都扫盘。key = cwd，value = {file, ts} */
+const stateFileCache = new Map()
+
+/** 在 cwd 及其浅层子目录里找 PROJECT_STATE.md，取 mtime 最新的一个。
+ *  只向下找 maxDepth 层，跳过 node_modules/.git 等目录，避免扫描过大。*/
+function findStateFile(cwd, maxDepth = 2) {
+  const now = Date.now()
+  const cached = stateFileCache.get(cwd)
+  if (cached && now - cached.ts < 10000) return cached.file
+
+  let best = null
+  let bestMtime = 0
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name === STATE_FILE) {
+        const full = path.join(dir, ent.name)
+        try {
+          const m = statSync(full).mtimeMs
+          if (m > bestMtime) { bestMtime = m; best = full }
+        } catch {}
+      }
+    }
+    if (depth === maxDepth) return
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue
+      if (STATE_SKIP.has(ent.name)) continue
+      if (ent.name.startsWith('.')) continue
+      walk(path.join(dir, ent.name), depth + 1)
+    }
+  }
+  walk(cwd, 0)
+
+  stateFileCache.set(cwd, { file: best, ts: now })
+  return best
+}
+
+/** 若工作目录（或其浅层子目录）里有 PROJECT_STATE.md，生成一段"先读它"的提示。
  *  这样 brain 不必在每个 brief 里重复描述项目背景——
  *  实测 36 次派单重复描述花掉约 5.3 万 token（¥0.21），改读文件后接近 0。*/
 function stateFileHint(cwd) {
   try {
-    const file = path.join(cwd, 'PROJECT_STATE.md')
-    if (existsSync(file)) {
+    const file = findStateFile(cwd)
+    if (file !== null) {
       return `【项目状态】先读 ${file}，了解项目结构、接口约定、当前进度和你要做的部分。`
         + '严格按其中的约定交付。\n\n'
     }

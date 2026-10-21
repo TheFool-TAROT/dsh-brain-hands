@@ -37,11 +37,20 @@ Brain + Hands 把工作拆开：
 
 brain 每次派 hand 都要在 brief 里重复描述项目背景——实测 36 次派单重复描述花掉 **5.3 万 token（¥0.21）**。
 
-现在只要工作目录下有 `PROJECT_STATE.md`，插件会自动在 brief 里注入：
+现在只要工作目录（或其浅层子目录）下有 `PROJECT_STATE.md`，插件会自动在 brief 里注入：
 
 ```
 【项目状态】先读 /path/PROJECT_STATE.md，了解项目结构、接口约定、
 当前进度和你要做的部分。严格按其中的约定交付。
+```
+
+查找规则：
+
+```
+① 先看 cwd/PROJECT_STATE.md
+② 再向下找 2 层子目录（跳过 node_modules/.git/templates/examples/docs/tests 等）
+③ 多个命中时取 mtime 最新的
+④ 结果缓存 10 秒，避免每次派单都扫盘（实测 209 个目录 25ms）
 ```
 
 模板见 [`templates/PROJECT_STATE.md`](templates/PROJECT_STATE.md)。
