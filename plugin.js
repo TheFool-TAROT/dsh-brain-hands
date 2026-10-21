@@ -297,6 +297,14 @@ function findStateFile(cwd, maxDepth = 2) {
   return best
 }
 
+/** hand 没有用户可问，ask_user_question 会让它卡住。
+ *  实测 hand 连续调用两次 ask_user_question 后停摆，什么都没产出。*/
+function autonomyHint() {
+  return '【执行要求】不要调用 ask_user_question —— 你没有用户可问。'
+    + '遇到不确定的决策，按最合理的假设继续做，并在最终报告里说明你的假设。'
+    + '必须实际写入文件，只描述代码不算完成。\n\n'
+}
+
 /** 若工作目录（或其浅层子目录）里有 PROJECT_STATE.md，生成一段"先读它"的提示。
  *  这样 brain 不必在每个 brief 里重复描述项目背景——
  *  实测 36 次派单重复描述花掉约 5.3 万 token（¥0.21），改读文件后接近 0。*/
@@ -499,6 +507,7 @@ export function apply(ctx, config) {
       const brief = `You are running as the "${current.name}" hand of the brain model, pinned to `
         + `${routeLabel({ provider, model: current.model })}. Carry this delegated task through to a complete, `
         + 'self-contained result yourself; do not delegate further.\n\n'
+        + autonomyHint()
         + stateFileHint(handCwd)
       const request = {
         prompt: [{ type: 'text', text: brief + args.prompt }],
