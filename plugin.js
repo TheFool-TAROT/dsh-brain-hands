@@ -231,7 +231,7 @@ function extractExpectedSymbols(text) {
 
 /** 派单前扫描 .py 文件，写入临时快照，用于事后区分新增/修改。
  *  Linux 上 st_birthtime 不可用、ctime 修改后也会变，只能靠快照对比。*/
-function snapshotPyFiles(cwd, maxDepth = 4) {
+function snapshotPyFiles(cwd, maxDepth = 8) {
   const out = []
   const walk = (dir, depth) => {
     if (depth > maxDepth) return
@@ -344,7 +344,11 @@ function verifyHandOutput(cwd, since, expect = [], snapshot = null, timeoutMs = 
 /** 把验收结果渲染成一段追加到 hand 回复末尾的文字。*/
 function renderVerifyReport(report) {
   if (report === null || report === undefined) return ''
-  if (report.checked === 0) return '\n\n【产出验收】没有检测到新增/修改的 .py 文件'
+  if (report.checked === 0) {
+    return '\n\n【产出验收】✗ 没有检测到任何 .py 文件变更。'
+      + 'hand 可能只描述了代码而没有实际写入文件。'
+      + '请检查：① hand 报告的目标路径是否正确 ② 是否真的需要重派该任务'
+  }
   const nAdd = (report.added || []).length
   const nMod = (report.modified || []).length
   const scope = report.added === undefined

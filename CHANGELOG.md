@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.3] - 2026-10-21
+
+### Fixed
+- **快照深度不足**：`snapshotPyFiles` 的 maxDepth 从 4 提到 8。
+  实测 `/root/lab/ctx_test/proj/flowforge/utils/`（深度 5）的文件不在快照里，
+  修改被误报为「新增」。修复后 2206 个 .py、202ms。
+- **checked=0 时给出诊断**：不再只报「没有检测到变更」，
+  而是提示「hand 可能只描述了代码而没有实际写入，请检查路径或重派」。
+
+### Known issue
+- hand 会幻觉「write 工具未注册」而拒绝写文件——实测它的工具列表里
+  `write`/`edit`/`bash`/`read` 全都在。目前靠验收报告兜底。
+
 ## [1.3.2] - 2026-10-21
 
 ### Added
