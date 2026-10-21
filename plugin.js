@@ -203,6 +203,32 @@ const STATE_SKIP = new Set([
 /** 缓存查找结果，避免每次派单都扫盘。key = cwd，value = {file, ts} */
 const stateFileCache = new Map()
 
+const BUILTIN_NAMES = new Set([
+  'print','len','str','int','float','bool','list','dict','set','tuple','open','range',
+  'enumerate','zip','map','filter','sum','min','max','sorted','any','all','isinstance',
+  'getattr','setattr','hasattr','super','self','cls','type','repr','format','round',
+  'read','write','open','close','main','test','__init__','__main__',
+])
+
+/** 从 brief 里提取「应该实现」的函数/类名。
+ *  只认明确写法：def/class、实现 xxx(、xxx() ->、`xxx(...)`，避免误抓。*/
+function extractExpectedSymbols(text) {
+  if (!text) return []
+  const names = new Set()
+  const add = n => { if (n && !BUILTIN_NAMES.has(n) && /^[A-Za-z_]\w*$/.test(n)) names.add(n) }
+
+  // def xxx / class xxx
+  for (const m of text.matchAll(/\b(?:def|class)\s+([A-Za-z_]\w*)/g)) add(m[1])
+  // 实现 xxx( / 编写 xxx( / 写一个 xxx( / 写 xxx(
+  for (const m of text.matchAll(/(?:实现|编写|写出|写一个|写个|写)\s*`?([A-Za-z_][\w]*)`?\s*\(/g)) add(m[1])
+  // xxx() ->  （函数签名形式）
+  for (const m of text.matchAll(/`?([A-Za-z_]\w*)`?\s*\([^)]*\)\s*->/g)) add(m[1])
+  // 反引号里的 xxx(...)
+  for (const m of text.matchAll(/`([A-Za-z_]\w*)\s*\([^`]*\)`/g)) add(m[1])
+
+  return [...names]
+}
+
 /** 在 cwd 及其浅层子目录里找 PROJECT_STATE.md，取 mtime 最新的一个。
  *  只向下找 maxDepth 层，跳过 node_modules/.git 等目录，避免扫描过大。*/
 function findStateFile(cwd, maxDepth = 2) {
@@ -258,11 +284,13 @@ function stateFileHint(cwd) {
 }
 
 /** 调用 verify.py 验收 hand 产出。失败或无脚本时返回 null（不阻断流程）。*/
-function verifyHandOutput(cwd, since, timeoutMs = 120000) {
+function verifyHandOutput(cwd, since, expect = [], timeoutMs = 120000) {
   const script = path.join(path.dirname(new URL(import.meta.url).pathname), 'verify.py')
   if (!existsSync(script)) return Promise.resolve(null)
   return new Promise(resolve => {
-    execFile('python3', [script, cwd, '--since', String(since), '--json'],
+    const argv = [script, cwd, '--since', String(since), '--json']
+    if (expect.length > 0) argv.push('--expect', expect.join(','))
+    execFile('python3', argv,
       { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
         const raw = (stdout || '').trim()
         if (!raw) return resolve(null)
@@ -289,6 +317,9 @@ function renderVerifyReport(report) {
     for (const p of probs) lines.push(`    · ${p}`)
   }
   for (const p of report.import_problems || []) lines.push(`- ${p}`)
+  if (report.missing && report.missing.length > 0) {
+    lines.push(`- 缺少期望的定义: ${report.missing.join(', ')}`)
+  }
   return lines.join('\n')
 }
 
@@ -465,7 +496,8 @@ export function apply(ctx, config) {
       // 自动验收 hand 产出：语法 / 导入 / Markdown 围栏污染
       let verifyText = ''
       try {
-        const report = await verifyHandOutput(handCwd, handStartTs)
+        const expected = extractExpectedSymbols(args.prompt)
+        const report = await verifyHandOutput(handCwd, handStartTs, expected)
         verifyText = renderVerifyReport(report)
       } catch {}
       return {

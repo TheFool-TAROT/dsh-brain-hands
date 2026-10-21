@@ -83,6 +83,26 @@ hand 返回后，插件自动调用 `verify.py` 检查它写的代码：
 | 整文件空实现 | 所有定义都是 `pass` |
 | 顶层包 import | 能否 `import <pkg>` |
 
+### ③ 期望符号检查（v1.2）
+
+插件从 brief 里自动提取「应该实现」的函数/类名：
+
+```
+"实现 now_iso() -> str"        → 提取 now_iso
+"写一个 parse_rfc3339(...)"    → 提取 parse_rfc3339
+"创建 class LRUCache，实现 `get(key)`"  → 提取 LRUCache, get
+```
+
+然后传给 `verify.py --expect`。如果 hand 少写一个：
+
+```
+【产出验收】✗ 发现问题，需修正：
+- 缺少期望的定义: now_iso
+```
+
+这堵住了「函数名写错」这个盲区——实测 hand 曾把 `now_iso` 写成 `get_time`，
+而旧版验收因为语法合法、import 通过而误报「通过」。
+
 验收是**非阻断**的——失败只附报告，不影响流程，由 brain 决定是否重派。
 
 ---

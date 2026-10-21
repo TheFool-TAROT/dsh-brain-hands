@@ -140,6 +140,8 @@ def main() -> int:
     ap.add_argument("workdir")
     ap.add_argument("--since", type=float, default=None,
                     help="只检查此 unix 时间戳之后修改的文件")
+    ap.add_argument("--expect", default="",
+                    help="逗号分隔的期望函数/类名，缺一个就报错")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -173,7 +175,22 @@ def main() -> int:
         rel = os.path.relpath(f, root)
         symbols[rel] = names if names else ["(无顶层定义)"]
 
-    ok = not per_file and not import_probs
+    # 检查期望的符号是否都存在
+    missing: list[str] = []
+    expects = [x.strip() for x in a.expect.split(",") if x.strip()]
+    if expects:
+        defined: set[str] = set()
+        for f in files:
+            try:
+                tree = ast.parse(open(f, encoding="utf-8", errors="ignore").read())
+            except SyntaxError:
+                continue
+            for n in ast.walk(tree):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    defined.add(n.name)
+        missing = [e for e in expects if e not in defined]
+
+    ok = not per_file and not import_probs and not missing
     result = {
         "ok": ok,
         "checked": len(files),
@@ -181,6 +198,8 @@ def main() -> int:
         "symbols": symbols,
         "problems": per_file,
         "import_problems": import_probs,
+        "expected": expects,
+        "missing": missing,
     }
 
     if a.json:
@@ -203,6 +222,8 @@ def main() -> int:
                     print(f"      - {p}")
             for p in import_probs:
                 print(f"  ✗ {p}")
+            if missing:
+                print(f"  ✗ 缺少期望的定义: {', '.join(missing)}")
 
     return 0 if ok else 1
 
