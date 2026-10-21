@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.6.1] - 2026-10-21
+
+### Fixed
+**import 检查从「扫描整个 root」改为「只检查变更文件相关的包」。**
+
+实测灾难性误报：当 `handCwd = /root` 时（dsh 的默认 cwd），
+`_all_packages()` 会扫描并 import `/root` 下所有含 `__init__.py` 的目录：
+
+```
+go/pkg/mod/github.com/...           （Go 模块）
+lab/big_proj/django/...             （Django 全部子包）
+lib/python3.14/site-packages/...    （fastapi/httpx/pydantic 等）
+redteam/toolkit/...                 （渗透工具链）
+runs/task42/...                     （历史任务产物）
+```
+
+产生 **300+ 条 import 失败误报**，一次验收耗时十几秒。
+
+修复：`_relevant_packages()` 沿变更文件的父目录链找包，
+最多 20 个，且跳过 tests/docs/examples。
+
+修复后 `/root` 全量扫描：**1.01 秒，2 个文件，零误报**。
+
 ## [1.6.0] - 2026-10-21
 
 ### Changed

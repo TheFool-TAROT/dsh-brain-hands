@@ -132,33 +132,43 @@ def check_file(path: str) -> list[str]:
     return problems
 
 
-def _all_packages(root: str) -> list[str]:
-    """找出 root 下所有含 __init__.py 的目录，转成可 import 的模块路径。"""
-    pkgs = []
-    skip = {"__pycache__", ".git", ".venv", "venv", "node_modules", ".pytest_cache"}
-    for dp, dirs, fns in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in skip]
-        if "__init__.py" not in fns:
-            continue
-        rel = os.path.relpath(dp, root)
-        if rel == ".":
-            continue
-        parts = [p for p in rel.split(os.sep) if p and not p.startswith(".")]
-        if not parts:
-            continue
-        if parts[0] in ("tests", "test", "docs", "examples"):
-            continue
-        pkgs.append(".".join(parts))
-    return sorted(pkgs)
+def _relevant_packages(root: str, files: list[str], limit: int = 20) -> list[str]:
+    """从「本次变更的文件」反推相关的包，绝不扫描整个 root。
+
+    早期版本扫描 root 下所有含 __init__.py 的目录，当 root=/root 时
+    会把 go/pkg/mod、site-packages、redteam 工具链全部 import 一遍，
+    产生数百条误报。现在只沿着变更文件的父目录链找包。
+    """
+    root_abs = os.path.abspath(root)
+    pkgs: set[str] = set()
+    for f in files:
+        d = os.path.dirname(os.path.abspath(f))
+        chain = []
+        while d.startswith(root_abs) and os.path.abspath(d) != root_abs:
+            if os.path.isfile(os.path.join(d, "__init__.py")):
+                chain.append(d)
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+        for pkg_dir in chain:
+            rel = os.path.relpath(pkg_dir, root_abs)
+            parts = [p for p in rel.split(os.sep) if p and not p.startswith(".")]
+            if not parts:
+                continue
+            if parts[0] in ("tests", "test", "docs", "examples"):
+                continue
+            for i in range(1, len(parts) + 1):
+                pkgs.add(".".join(parts[:i]))
+    return sorted(pkgs)[:limit]
 
 
 def check_import(root: str, files: list[str]) -> list[str]:
-    """逐个导入所有子包——只测顶层包会漏掉 __init__.py 里的坏导入。"""
+    """只导入与本次变更相关的包——顶层包和它的父包。"""
     problems = []
-    pkgs = _all_packages(root)
+    pkgs = _relevant_packages(root, files)
     if not pkgs:
         return problems
-    # 一次性把 sys.path 设好，逐个 import，遇到失败就记录
     code = f"""
 import sys, importlib
 sys.path.insert(0, {root!r})
@@ -171,8 +181,11 @@ for name in {pkgs!r}:
 for name, err in failed:
     print(f"FAIL\t{{name}}\t{{err}}")
 """
-    p = subprocess.run([sys.executable, "-c", code],
-                       capture_output=True, text=True, timeout=120)
+    try:
+        p = subprocess.run([sys.executable, "-c", code],
+                           capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return ["import 检查超时（60s）"]
     for line in (p.stdout or "").splitlines():
         if not line.startswith("FAIL\t"):
             continue
