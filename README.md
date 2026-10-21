@@ -83,7 +83,7 @@ hand 返回后，插件自动调用 `verify.py` 检查它写的代码：
 ```bash
 # 在你的 dsh profile 目录下
 cd ~/.dsh/profiles/<your-profile>
-pnpm add github:<your-username>/dsh-brain-hands
+pnpm add github:TheFool-TAROT/dsh-brain-hands
 ```
 
 或在 profile 的 `package.json` 的 `dsh.profile.bundles` 里加入 `dsh-brain-hands`。
@@ -128,7 +128,7 @@ pnpm add github:<your-username>/dsh-brain-hands
 
 ## 项目
 Flowforge —— 分布式数据管道编排引擎
-根目录：/root/work/proj
+根目录：/path/to/your/project
 
 ## 目录结构
 （实时更新）

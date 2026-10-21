@@ -15,12 +15,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands.git"
+    "url": "git+https://github.com/TheFool-TAROT/dsh-brain-hands.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands/issues"
+    "url": "https://github.com/TheFool-TAROT/dsh-brain-hands/issues"
   },
-  "homepage": "https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands#readme",
+  "homepage": "https://github.com/TheFool-TAROT/dsh-brain-hands#readme",
   "exports": {
     ".": "./plugin.js",
     "./client": "./client.js",
