@@ -69,6 +69,24 @@ def check_file(path: str) -> list[str]:
     if non_comment_cn >= 3:
         problems.append(f"疑似混入 {non_comment_cn} 行非代码内容（表格/列表）")
 
+    # 3.5) 文件实质为空：只有省略号/pass/注释/空白
+    meaningful = []
+    try:
+        tree = ast.parse(src)
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue          # 文档字符串、... 之类
+            if isinstance(node, ast.Pass):
+                continue
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                meaningful.append("import")
+                continue
+            meaningful.append(type(node).__name__)
+    except SyntaxError:
+        pass
+    if not meaningful and len(src.strip()) < 40:
+        problems.append(f"文件实质为空（{len(src.strip())} 字节，无任何定义）")
+
     # 4) 是否为空洞实现（整文件只有 pass / ...）
     try:
         tree = ast.parse(src)
@@ -141,11 +159,26 @@ def main() -> int:
 
     import_probs = check_import(root, files)
 
+    # 收集每个文件定义的公开符号，附在结果里供 brain 核对
+    symbols: dict[str, list[str]] = {}
+    for f in files:
+        try:
+            tree = ast.parse(open(f, encoding="utf-8", errors="ignore").read())
+        except SyntaxError:
+            continue
+        names = []
+        for n in tree.body:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.append(n.name)
+        rel = os.path.relpath(f, root)
+        symbols[rel] = names if names else ["(无顶层定义)"]
+
     ok = not per_file and not import_probs
     result = {
         "ok": ok,
         "checked": len(files),
         "files": [os.path.relpath(f, root) for f in files],
+        "symbols": symbols,
         "problems": per_file,
         "import_problems": import_probs,
     }
@@ -157,7 +190,10 @@ def main() -> int:
         if ok:
             print("  ✓ 全部通过")
             for f in result["files"][:8]:
+                syms = result["symbols"].get(f) or []
                 print(f"    ✓ {f}")
+                if syms:
+                    print(f"        定义: {', '.join(syms[:6])}")
             if len(result["files"]) > 8:
                 print(f"    … 还有 {len(result['files']) - 8} 个")
         else:
