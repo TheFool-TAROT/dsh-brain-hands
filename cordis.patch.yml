@@ -1,0 +1,7 @@
+- insert:
+    - id: brain-hands
+      name: dsh-brain-hands
+      config:
+        enabled: true
+        primary: {}
+        hands: []

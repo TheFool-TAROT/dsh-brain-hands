@@ -1,0 +1,59 @@
+{
+  "name": "dsh-brain-hands",
+  "version": "1.1.0",
+  "type": "module",
+  "description": "Brain + Hands: one orchestrator model plans and decides, while every named hand runs on its own (often free) model. Includes shared project-state injection and automatic output verification.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "multi-agent",
+    "orchestrator",
+    "subagent",
+    "cost-optimization"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands/issues"
+  },
+  "homepage": "https://github.com/YOUR_GITHUB_USERNAME/dsh-brain-hands#readme",
+  "exports": {
+    ".": "./plugin.js",
+    "./client": "./client.js",
+    "./verify": "./verify.py",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "icon": "./icon.svg",
+  "files": [
+    "plugin.js",
+    "client.js",
+    "verify.py",
+    "icon.svg",
+    "locale/*.json",
+    "templates/*.md"
+  ],
+  "meta": {
+    "title": "Brain + Hands",
+    "description": "One brain model plans and decides; every hand you name runs on its own model."
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller"
+      ]
+    }
+  }
+}
