@@ -10,6 +10,7 @@
 - `verify.py` 可独立运行，支持 `--since` / `--json`。
 - `templates/PROJECT_STATE.md` 与 `templates/AGENTS_HAND_BRIEF.md` 模板。
 - README 加入三组真实成本对照实验数据。
+- `docs/EXPERIMENT.md`：完整实验报告（方法、数据、结论修正过程）。
 
 ### Changed
 - `package.json` 改为可发布（去掉 `private`，补充 repository / keywords / license）。

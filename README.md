@@ -185,6 +185,10 @@ brain 看到后修掉或重派。
 
 ## 实测数据
 
+> 完整实验方法、原始数据、以及两次错误结论的修正过程，见
+> [`docs/EXPERIMENT.md`](docs/EXPERIMENT.md)。
+
+
 在真实 agent 会话中做的三组对照实验（DeepSeek V4.1-Flash 官方价：
 未命中 ¥1/M · 命中 ¥0.02/M · 输出 ¥4/M，空闲时段）：
 
