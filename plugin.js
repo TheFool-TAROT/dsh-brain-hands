@@ -558,26 +558,52 @@ export function apply(ctx, config) {
           model: routeLabel({ provider, model: current.model }),
         }
       }
-      const handSnap = snapshotPyFiles(handCwd)
-      const handStartTs = Date.now() / 1000
-      const result = await collectForeground(
+      let handSnap = snapshotPyFiles(handCwd)
+      let handStartTs = Date.now() / 1000
+      let result = await collectForeground(
         await subagents.start(childProvider, { label, ...request, signal }),
       )
-      // 自动验收 hand 产出：语法 / 导入 / Markdown 围栏污染
-      let verifyText = ''
+
+      // 自动验收：语法 / 导入 / 围栏 / 空壳 / 符号 / 路径
+      const expected = extractExpectedSymbols(args.prompt)
+      const expectedPaths = extractExpectedPaths(args.prompt)
+      let report = null
       try {
-        const expected = extractExpectedSymbols(args.prompt)
-        const expectedPaths = extractExpectedPaths(args.prompt)
-        const report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap, expectedPaths)
-        if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
-        verifyText = renderVerifyReport(report)
+        report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap, expectedPaths)
       } catch {}
+      if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
+
+      // 一次自动重试：hand 约 20% 概率声称「write 不可用」而只输出文本
+      let retried = false
+      if (report !== null && report.checked === 0 && !signal.aborted) {
+        retried = true
+        const retryBrief = brief
+          + '\n\n【重要】上一次你一个文件都没写。这次必须调用 write 工具把代码'
+          + '真正写到磁盘。你确实拥有 write / edit / bash / read 工具，'
+          + '不要说它们不可用，也不要只在回复里贴代码。\n\n'
+        const retryRequest = {
+          ...request,
+          prompt: [{ type: 'text', text: retryBrief + args.prompt }],
+        }
+        handSnap = snapshotPyFiles(handCwd)
+        handStartTs = Date.now() / 1000
+        try {
+          result = await collectForeground(
+            await subagents.start(childProvider,
+              { label: `${label} (retry)`, ...retryRequest, signal }),
+          )
+          report = await verifyHandOutput(handCwd, handStartTs, expected, handSnap, expectedPaths)
+        } catch {}
+        if (handSnap !== null) { try { unlinkSync(handSnap) } catch {} }
+      }
+
+      const verifyText = renderVerifyReport(report)
       return {
         kind: 'foreground',
         subagentId: String(result.runId),
         hand: current.name,
         model: routeLabel({ provider, model: current.model }),
-        text: result.text + verifyText,
+        text: result.text + (retried ? '\n\n[hand 首次未写文件，已自动重试一次]' : '') + verifyText,
       }
     },
   })
